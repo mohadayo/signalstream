@@ -28,9 +28,21 @@ def ingest_event():
         logger.warning("Received request with invalid JSON body")
         return jsonify({"error": "Request body must be valid JSON"}), 400
 
+    if not isinstance(body, dict):
+        logger.warning("Received JSON body that is not an object")
+        return jsonify({"error": "Request body must be a JSON object"}), 400
+
     if "type" not in body:
         logger.warning("Received event without 'type' field")
         return jsonify({"error": "Field 'type' is required"}), 400
+
+    if not isinstance(body["type"], str) or not body["type"].strip():
+        logger.warning("Received event with invalid 'type' field")
+        return jsonify({"error": "Field 'type' must be a non-empty string"}), 400
+
+    if not isinstance(body.get("payload", {}), dict):
+        logger.warning("Received event with non-object 'payload'")
+        return jsonify({"error": "Field 'payload' must be an object"}), 400
 
     event = {
         "id": str(uuid.uuid4()),
@@ -48,7 +60,14 @@ def ingest_event():
 def list_events():
     event_type = request.args.get("type")
     source = request.args.get("source")
-    limit = request.args.get("limit", default=100, type=int)
+    raw_limit = request.args.get("limit", "100")
+    try:
+        limit = int(raw_limit)
+    except ValueError:
+        limit = 0
+    if limit < 1:
+        logger.warning("Invalid limit parameter: %r", raw_limit)
+        return jsonify({"error": "Query parameter 'limit' must be a positive integer"}), 400
 
     results = events_store
     if event_type:
