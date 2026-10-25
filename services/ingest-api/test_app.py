@@ -76,3 +76,28 @@ def test_clear_events(client):
     assert resp.get_json()["cleared"] == 2
     resp = client.get("/events")
     assert resp.get_json()["count"] == 0
+
+
+@pytest.mark.parametrize("body", ["type", 5, [1, 2], None])
+def test_ingest_rejects_non_object_body(client, body):
+    resp = client.post("/events", json=body)
+    assert resp.status_code == 400
+
+
+@pytest.mark.parametrize("type_value", [123, "", "   ", ["a"], None])
+def test_ingest_rejects_invalid_type(client, type_value):
+    resp = client.post("/events", json={"type": type_value})
+    assert resp.status_code == 400
+    assert "type" in resp.get_json()["error"]
+
+
+def test_ingest_rejects_non_object_payload(client):
+    resp = client.post("/events", json={"type": "click", "payload": "oops"})
+    assert resp.status_code == 400
+    assert "payload" in resp.get_json()["error"]
+
+
+@pytest.mark.parametrize("limit", ["0", "-1", "abc"])
+def test_list_rejects_invalid_limit(client, limit):
+    resp = client.get(f"/events?limit={limit}")
+    assert resp.status_code == 400
