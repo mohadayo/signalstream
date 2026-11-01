@@ -13,6 +13,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ingest-api")
 
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(name, default))
+    except ValueError:
+        logger.warning("Invalid %s, falling back to %d", name, default)
+        return default
+    return value if value > 0 else default
+
+
+# メモリ使用量が際限なく増えないよう、保持するイベント数の上限を環境変数で設定可能にする
+MAX_EVENTS = _int_env("MAX_EVENTS", 10000)
+
 events_store: list[dict] = []
 
 
@@ -44,14 +57,23 @@ def ingest_event():
         logger.warning("Received event with non-object 'payload'")
         return jsonify({"error": "Field 'payload' must be an object"}), 400
 
+    source = body.get("source", "unknown")
+    if not isinstance(source, str) or not source.strip():
+        logger.warning("Received event with invalid 'source' field")
+        return jsonify({"error": "Field 'source' must be a non-empty string"}), 400
+
     event = {
         "id": str(uuid.uuid4()),
         "type": body["type"],
         "payload": body.get("payload", {}),
-        "source": body.get("source", "unknown"),
+        "source": source,
         "ingested_at": time.time(),
     }
     events_store.append(event)
+    if len(events_store) > MAX_EVENTS:
+        dropped = len(events_store) - MAX_EVENTS
+        del events_store[:dropped]
+        logger.warning("Event store exceeded MAX_EVENTS=%d, dropped %d oldest event(s)", MAX_EVENTS, dropped)
     logger.info("Ingested event id=%s type=%s source=%s", event["id"], event["type"], event["source"])
     return jsonify(event), 201
 

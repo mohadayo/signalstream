@@ -141,6 +141,7 @@ make lint
 | `PROCESSOR_PORT` | `8002` | Processor port |
 | `DASHBOARD_PORT` | `8003` | Dashboard API port |
 | `LOG_LEVEL` | `INFO` | Log level for Python service |
+| `MAX_EVENTS` | `10000` | ingest-api が保持するイベント数の上限（超過時は古いものから破棄） |
 
 ## CI/CD
 
