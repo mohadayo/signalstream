@@ -101,3 +101,19 @@ def test_ingest_rejects_non_object_payload(client):
 def test_list_rejects_invalid_limit(client, limit):
     resp = client.get(f"/events?limit={limit}")
     assert resp.status_code == 400
+
+
+def test_ingest_rejects_invalid_source(client):
+    for bad in ["", "  ", 123, {"a": 1}]:
+        resp = client.post("/events", json={"type": "click", "source": bad})
+        assert resp.status_code == 400
+        assert "source" in resp.get_json()["error"]
+
+
+def test_events_store_is_bounded(client, monkeypatch):
+    import app as app_module
+    monkeypatch.setattr(app_module, "MAX_EVENTS", 3)
+    for i in range(5):
+        assert client.post("/events", json={"type": f"t{i}"}).status_code == 201
+    events = client.get("/events").get_json()["events"]
+    assert [e["type"] for e in events] == ["t2", "t3", "t4"]
