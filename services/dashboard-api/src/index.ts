@@ -1,7 +1,7 @@
 import express, { Request, Response } from "express";
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: process.env.DASHBOARD_BODY_LIMIT || "1mb" }));
 
 interface DashboardSummary {
   totalEvents: number;
@@ -18,12 +18,25 @@ interface EventInput {
   ingested_at: number;
 }
 
+const MAX_KEY_LENGTH = 128;
+
+// プロトタイプを持たない辞書を使い、"__proto__" や "constructor" といった
+// キー名でも素直にカウントできるようにする。
+const createCounter = (): Record<string, number> =>
+  Object.create(null) as Record<string, number>;
+
 const summary: DashboardSummary = {
   totalEvents: 0,
-  byType: {},
-  bySource: {},
+  byType: createCounter(),
+  bySource: createCounter(),
   lastUpdated: Date.now(),
 };
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.trim().length > 0 && value.length <= MAX_KEY_LENGTH;
+
+const resolveSource = (value: unknown): string =>
+  isNonEmptyString(value) ? value : "unknown";
 
 const log = (level: string, message: string): void => {
   const timestamp = new Date().toISOString();
@@ -43,18 +56,25 @@ app.post("/ingest", (req: Request, res: Response) => {
   }
 
   let ingested = 0;
+  let skipped = 0;
   for (const event of events) {
-    if (!event.type) continue;
+    if (event === null || typeof event !== "object" || !isNonEmptyString(event.type)) {
+      skipped++;
+      continue;
+    }
+    const source = resolveSource(event.source);
     summary.totalEvents++;
     summary.byType[event.type] = (summary.byType[event.type] || 0) + 1;
-    summary.bySource[event.source || "unknown"] =
-      (summary.bySource[event.source || "unknown"] || 0) + 1;
+    summary.bySource[source] = (summary.bySource[source] || 0) + 1;
     ingested++;
   }
   summary.lastUpdated = Date.now();
 
+  if (skipped > 0) {
+    log("WARN", `Skipped ${skipped} invalid events (missing or non-string type)`);
+  }
   log("INFO", `Ingested ${ingested} events into dashboard summary`);
-  res.json({ ingested });
+  res.json({ ingested, skipped });
 });
 
 app.get("/summary", (_req: Request, res: Response) => {
@@ -64,8 +84,8 @@ app.get("/summary", (_req: Request, res: Response) => {
 
 app.post("/summary/reset", (_req: Request, res: Response) => {
   summary.totalEvents = 0;
-  summary.byType = {};
-  summary.bySource = {};
+  summary.byType = createCounter();
+  summary.bySource = createCounter();
   summary.lastUpdated = Date.now();
   log("INFO", "Dashboard summary reset");
   res.json({ reset: true });
