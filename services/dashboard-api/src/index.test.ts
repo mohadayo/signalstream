@@ -48,6 +48,61 @@ describe("POST /ingest", () => {
   });
 });
 
+describe("POST /ingest input validation", () => {
+  it("skips null and non-object events instead of returning 500", async () => {
+    const res = await request(app)
+      .post("/ingest")
+      .send({ events: [null, 42, "click", { id: "1", type: "click", source: "web" }] });
+    expect(res.status).toBe(200);
+    expect(res.body.ingested).toBe(1);
+    expect(res.body.skipped).toBe(3);
+  });
+
+  it("skips events whose type is not a string", async () => {
+    const res = await request(app)
+      .post("/ingest")
+      .send({
+        events: [
+          { id: "1", type: 123, source: "web" },
+          { id: "2", type: { nested: true }, source: "web" },
+          { id: "3", type: "   ", source: "web" },
+          { id: "4", type: "x".repeat(129), source: "web" },
+        ],
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.ingested).toBe(0);
+    expect(res.body.skipped).toBe(4);
+    const summaryRes = await request(app).get("/summary");
+    expect(summaryRes.body.totalEvents).toBe(0);
+  });
+
+  it("falls back to 'unknown' for non-string source", async () => {
+    await request(app)
+      .post("/ingest")
+      .send({ events: [{ id: "1", type: "click", source: 99 }, { id: "2", type: "click" }] });
+    const res = await request(app).get("/summary");
+    expect(res.body.bySource.unknown).toBe(2);
+  });
+
+  it("counts prototype-like keys correctly", async () => {
+    await request(app)
+      .post("/ingest")
+      .send({
+        events: [
+          { id: "1", type: "constructor", source: "__proto__" },
+          { id: "2", type: "constructor", source: "__proto__" },
+          { id: "3", type: "toString", source: "web" },
+        ],
+      });
+    const res = await request(app).get("/summary");
+    expect(res.body.totalEvents).toBe(3);
+    expect(res.body.byType.constructor).toBe(2);
+    expect(res.body.byType.toString).toBe(1);
+    expect(res.body.bySource.web).toBe(1);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});
+
 describe("GET /summary", () => {
   it("returns aggregated summary", async () => {
     await request(app)
