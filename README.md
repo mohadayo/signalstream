@@ -101,6 +101,13 @@ make down
 | GET | `/summary` | Get dashboard summary |
 | POST | `/summary/reset` | Reset dashboard summary |
 
+**POST /ingest** response:
+```json
+{ "ingested": 2, "skipped": 1 }
+```
+
+`null` や非オブジェクトの要素、`type` が空・非文字列・128 文字超のイベントは 500 にせずスキップされ、`skipped` に件数が計上されます。`source` が文字列でない場合は `"unknown"` として集計されます。
+
 **GET /summary** response:
 ```json
 {
@@ -141,6 +148,7 @@ make lint
 | `PROCESSOR_PORT` | `8002` | Processor port |
 | `DASHBOARD_PORT` | `8003` | Dashboard API port |
 | `LOG_LEVEL` | `INFO` | Log level for Python service |
+| `DASHBOARD_BODY_LIMIT` | `1mb` | Dashboard API の JSON リクエストボディ上限 (Express `limit` 形式) |
 
 ## CI/CD
 
